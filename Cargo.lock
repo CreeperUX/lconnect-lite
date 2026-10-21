@@ -1946,7 +1946,7 @@ dependencies = [
 
 [[package]]
 name = "lcl-app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "lcl-core",
  "lcl-effects",
@@ -1960,7 +1960,7 @@ dependencies = [
 
 [[package]]
 name = "lcl-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "interprocess",
@@ -1973,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "lcl-daemon"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1989,7 +1989,7 @@ dependencies = [
 
 [[package]]
 name = "lcl-devices"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "cbc",
@@ -2001,7 +2001,7 @@ dependencies = [
 
 [[package]]
 name = "lcl-effects"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -2009,7 +2009,7 @@ dependencies = [
 
 [[package]]
 name = "lcl-media"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -2020,7 +2020,7 @@ dependencies = [
 
 [[package]]
 name = "lcl-sensord"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "lcl-core",
