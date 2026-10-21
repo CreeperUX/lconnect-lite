@@ -66,6 +66,7 @@ pub fn serve(devices_enabled: bool) -> Result<()> {
         return Ok(());
     }
     let config = Config::load_or_create()?;
+    sync_control_snapshot(&config);
     log::line(&format!(
         "后台服务启动{}；配置 {}",
         if devices_enabled { "" } else { "（不打开设备）" },
@@ -179,8 +180,16 @@ fn set_channel(shared: &Mutex<Shared>, channel: u8) -> Result<()> {
 fn apply_config(shared: &Mutex<Shared>, mut config: Config) -> Result<()> {
     config.normalize();
     config.save()?;
+    sync_control_snapshot(&config);
     shared.lock().unwrap().config = config;
     Ok(())
+}
+
+/// 同步一份配置给传感器系统服务（开机到登录前由它按曲线控制）。写不了只记日志，不影响保存。
+fn sync_control_snapshot(config: &Config) {
+    if let Err(e) = config.save_control_snapshot() {
+        log::line(&format!("开机接管用的配置副本没写成（{e:#}），开机时会用默认曲线"));
+    }
 }
 
 /// 把设备操作交给控制线程，等它执行完。
@@ -303,6 +312,8 @@ struct Controller {
     cpu_power: Option<f32>,
     /// CPU 温度保护是否在生效（带回差）。
     cpu_guard: bool,
+    /// 已经记过“传感器服务在开机接管”的日志。
+    keeper_seen: bool,
 }
 
 impl Controller {
@@ -331,6 +342,7 @@ impl Controller {
             cpu_sensor_error: None,
             cpu_power: None,
             cpu_guard: false,
+            keeper_seen: false,
         }
     }
 
@@ -358,7 +370,17 @@ impl Controller {
             (Some(prev), Some(p)) => Some(low_pass(prev, p, TICK, if p > prev { CPU_POWER_TAU_UP } else { CPU_POWER_TAU_DOWN })),
             (_, p) => p,
         };
-        self.ensure_devices();
+        // 开机接管：传感器服务还占着冷头和收发器时先不打开（WinUSB 只能一个程序用）。
+        // 它看到我们的命名管道就会释放，下一轮再接手；交接间隙设备保持当前转速。
+        let keeper_holding = self.cpu_sensors.as_ref().is_some_and(|(s, _)| s.boot_control);
+        if keeper_holding {
+            if !self.keeper_seen {
+                log::line("传感器服务正在开机接管风扇和泵，等它释放设备后接手");
+                self.keeper_seen = true;
+            }
+        } else {
+            self.ensure_devices();
+        }
         if self.channel_pending {
             self.channel_pending = false;
             if let (Some(wl), Some(channel)) = (self.wl.as_mut(), config.devices.channel) {
@@ -517,6 +539,10 @@ impl Controller {
         status.cpu_sensor_error = self.cpu_sensor_error.clone();
         status.cpu_guard = guard;
         status.pump_boost_rpm = pump_boost;
+        // 开机接管期间还没拿到设备，这一轮算出来的“没有水温读数”之类不是真问题，不报。
+        if keeper_holding {
+            status.last_error = None;
+        }
         status
     }
 

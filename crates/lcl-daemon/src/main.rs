@@ -30,6 +30,11 @@ enum Cmd {
         #[arg(long)]
         no_devices: bool,
     },
+    /// 开关开机自启（计划任务“LConnect Lite”，登录时立即启动）。安装程序以当前用户身份调用
+    Autostart {
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
     /// 调试：不经过服务，直接读取设备状态
     Probe,
     /// 调试：不经过服务，直接设定泵速和风扇转速，Ctrl+C 退出
@@ -53,6 +58,7 @@ fn main() -> Result<()> {
     attach_parent_console();
     let result = match Cli::parse().cmd.unwrap_or(Cmd::Serve { no_devices: false }) {
         Cmd::Serve { no_devices } => service::serve(!no_devices),
+        Cmd::Autostart { state } => autostart::set(state == "on"),
         Cmd::Probe => probe::status(),
         Cmd::Run {
             pump_rpm,

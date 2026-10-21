@@ -17,6 +17,9 @@ pub struct CpuSensors {
     pub source: String,
     /// 驱动没装、模块不支持这颗 CPU 之类的原因。
     pub error: Option<String>,
+    /// 传感器服务正在开机接管风扇和泵（后台服务还没接手）。为 true 时后台服务先不去打开设备。
+    #[serde(default)]
+    pub boot_control: bool,
 }
 
 /// 向 lcl-sensord 要一次最新读数。服务端写完一行就关管道；关闭的方式不同，

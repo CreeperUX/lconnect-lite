@@ -1,11 +1,13 @@
 //! LConnect Lite 传感器服务：以 SYSTEM 身份运行（Windows 服务“LConnectLiteSensors”），
 //! 每秒经 PawnIO 读一次 CPU 封装温度和功耗，通过命名管道交给以普通用户身份运行的后台服务。
+//! 开机到后台服务启动前，还按配置里的曲线接管风扇和泵（见 keeper.rs）。
 //!
 //! `lcl-sensord --console`：不经服务管理器，直接在控制台打印读数（要以管理员身份运行），调试用。
 
 #![windows_subsystem = "console"]
 
 mod cpu;
+mod keeper;
 mod pawnio;
 mod pipe;
 
@@ -27,6 +29,8 @@ const INTERVAL: Duration = Duration::from_secs(1);
 const RETRY: Duration = Duration::from_secs(30);
 
 static STOP: AtomicBool = AtomicBool::new(false);
+/// 开机接管是否还占着冷头和无线收发器。
+static BOOT_CONTROL: AtomicBool = AtomicBool::new(false);
 static STATUS_HANDLE: AtomicPtr<core::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
 
 fn main() {
@@ -96,8 +100,13 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
         let latest = Arc::clone(&latest);
         std::thread::spawn(move || {
             // 管道建不起来（比如名字被占）时服务照样运行，只是没人能读。
-            let _ = pipe::serve(&latest);
+            let _ = pipe::serve(&latest, &BOOT_CONTROL);
         });
+    }
+    {
+        // 开机接管：后台服务出现前按曲线控制风扇和泵。
+        let latest = Arc::clone(&latest);
+        std::thread::spawn(move || keeper::run(&latest, &BOOT_CONTROL, &STOP));
     }
     report(SERVICE_RUNNING);
     while !STOP.load(Ordering::SeqCst) {

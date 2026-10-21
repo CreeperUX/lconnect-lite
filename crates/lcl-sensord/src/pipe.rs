@@ -3,6 +3,7 @@
 
 use anyhow::{bail, Result};
 use lcl_core::sensors::{CpuSensors, PIPE_PATH};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, LocalFree, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
@@ -13,8 +14,8 @@ use windows_sys::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW, PIPE
 /// SYSTEM、管理员：完全控制；已登录用户：读。
 const SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;AU)";
 
-/// 一直服务下去（进程退出时结束）。
-pub fn serve(latest: &Mutex<CpuSensors>) -> Result<()> {
+/// 一直服务下去（进程退出时结束）。`boot_control`：开机接管是否还占着设备，随读数一起报告。
+pub fn serve(latest: &Mutex<CpuSensors>, boot_control: &AtomicBool) -> Result<()> {
     let sddl: Vec<u16> = SDDL.encode_utf16().chain([0]).collect();
     let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
     // SAFETY: 字符串以 0 结尾；成功时 sd 由系统分配，进程结束前一直用，不释放。
@@ -47,7 +48,9 @@ pub fn serve(latest: &Mutex<CpuSensors>) -> Result<()> {
         // SAFETY: 阻塞等一个客户端；客户端在两次调用之间连上时返回 ERROR_PIPE_CONNECTED，也算连上。
         let connected = unsafe { ConnectNamedPipe(pipe, std::ptr::null_mut()) } != 0 || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
         if connected {
-            let mut line = serde_json::to_string(&*latest.lock().unwrap()).unwrap_or_default();
+            let mut reading = latest.lock().unwrap().clone();
+            reading.boot_control = boot_control.load(Ordering::SeqCst);
+            let mut line = serde_json::to_string(&reading).unwrap_or_default();
             line.push('\n');
             let mut written = 0u32;
             // SAFETY: 缓冲区长度按实际传；刷新等客户端读完。之后直接关句柄（不调 DisconnectNamedPipe），

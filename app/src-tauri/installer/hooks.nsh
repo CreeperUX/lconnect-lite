@@ -6,7 +6,6 @@
 SetFont /LANG=2052 "Microsoft YaHei UI" 9
 SetFont /LANG=1033 "Segoe UI" 9
 
-!define LCL_RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 ; 传感器服务：以 SYSTEM 身份经 PawnIO 读 CPU 温度和功耗。
 !define LCL_SENSOR_SVC "LConnectLiteSensors"
 
@@ -54,6 +53,13 @@ SetFont /LANG=1033 "Segoe UI" 9
     Pop $0
   ${EndIf}
 
+  ; 开机接管用的配置副本目录：传感器服务（SYSTEM）开机时读，后台服务（普通用户）保存设置时写，
+  ; 所以要让 Users 组能改（S-1-5-32-545 = Users，不受系统语言影响）。
+  ReadEnvStr $1 ProgramData
+  CreateDirectory "$1\LConnect Lite"
+  nsExec::Exec 'icacls "$1\LConnect Lite" /grant *S-1-5-32-545:(OI)(CI)M'
+  Pop $0
+
   ; 传感器服务：已有就改路径，没有就新建；开机自动启动，异常退出后 5 秒重启。
   nsExec::Exec 'sc create ${LCL_SENSOR_SVC} binPath= "\"$INSTDIR\lcl-sensord.exe\"" start= auto DisplayName= "LConnect Lite Sensors"'
   Pop $0
@@ -68,8 +74,10 @@ SetFont /LANG=1033 "Segoe UI" 9
   nsExec::Exec 'sc start ${LCL_SENSOR_SVC}'
   Pop $0
 
-  ; 开机自启：格式和 lcl-daemon 的 autostart.rs 一致，界面设置页才会显示“已开启”。
-  WriteRegStr HKCU "${LCL_RUN_KEY}" "${PRODUCTNAME}" '"$INSTDIR\lcl-daemon.exe" serve'
+  ; 开机自启：以当前用户身份建计划任务（登录时立即启动，没有 Run 项那约 10 秒的延迟），
+  ; 顺带删掉旧版本写的 Run 项。由 lcl-daemon 自己建，界面设置页的开关用的是同一套逻辑。
+  nsis_tauri_utils::RunAsUser "$INSTDIR\lcl-daemon.exe" "autostart on"
+  Pop $0
   ; 以普通用户身份启动后台服务（管理员身份启动的话，界面连不上它的命名管道）。
   ; 完成页勾选“运行”时界面也会尝试启动，后台服务自己保证只有一个在运行。
   nsis_tauri_utils::RunAsUser "$INSTDIR\lcl-daemon.exe" "serve"
@@ -88,6 +96,9 @@ SetFont /LANG=1033 "Segoe UI" 9
   ${If} $UpdateMode <> 1
     nsExec::Exec 'sc delete ${LCL_SENSOR_SVC}'
     Pop $0
+    ; 开机自启任务（模板只删 Run 项）。
+    nsExec::Exec 'schtasks /delete /tn "${PRODUCTNAME}" /f'
+    Pop $0
   ${EndIf}
   ; 记下安装时有没有禁用 L-Connect 3；后面模板可能会删掉这个注册表项。
   ReadRegDWORD $R9 SHCTX "${MANUPRODUCTKEY}" "DisabledLConnect"
@@ -102,6 +113,9 @@ SetFont /LANG=1033 "Segoe UI" 9
       RMDir /r "$APPDATA\LConnect Lite"
       RMDir /r "$LOCALAPPDATA\LConnect Lite"
     ${EndIf}
+    ; 开机接管用的配置副本只是缓存，卸载就删。
+    ReadEnvStr $1 ProgramData
+    RMDir /r "$1\LConnect Lite"
 
     ${If} $R9 = 1
       nsExec::Exec 'sc query LConnectService'

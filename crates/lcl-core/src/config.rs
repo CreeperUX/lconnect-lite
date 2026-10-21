@@ -294,7 +294,31 @@ pub fn log_path() -> PathBuf {
     base.join("LConnect Lite").join("daemon.log")
 }
 
+/// 开机接管用的配置副本：`%ProgramData%\LConnect Lite\control.toml`。
+/// 传感器系统服务以 SYSTEM 身份在登录前就运行，读不到用户目录里的配置；后台服务每次保存配置时同步写一份到这里。
+pub fn control_snapshot_path() -> PathBuf {
+    let base = std::env::var_os("ProgramData").map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from);
+    base.join("LConnect Lite").join("control.toml")
+}
+
 impl Config {
+    /// 写开机接管用的副本（见 [`control_snapshot_path`]）。目录由安装程序建好并开放给普通用户写。
+    pub fn save_control_snapshot(&self) -> Result<()> {
+        let path = control_snapshot_path();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&path, toml::to_string_pretty(self)?).with_context(|| format!("写入 {}", path.display()))
+    }
+
+    /// 读开机接管用的副本；没有或读不了时返回 None。
+    pub fn load_control_snapshot() -> Option<Self> {
+        let text = std::fs::read_to_string(control_snapshot_path()).ok()?;
+        let mut config: Self = toml::from_str(&text).ok()?;
+        config.normalize();
+        Some(config)
+    }
+
     pub fn path() -> PathBuf {
         let base = std::env::var_os("APPDATA").map_or_else(|| PathBuf::from("."), PathBuf::from);
         base.join("LConnect Lite").join("config.toml")
