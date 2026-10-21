@@ -15,7 +15,7 @@ Push-Location $root
 try {
   if (git status --porcelain) { throw '工作树有未提交的改动，先提交并推送。' }
   $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
-  $tauri = (Get-Content app\src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
+  $tauri = (Get-Content app\src-tauri\tauri.conf.json -Raw -Encoding UTF8 | ConvertFrom-Json).version
   if ($version -ne $tauri) { throw "版本号不一致：Cargo.toml $version，tauri.conf.json $tauri" }
   $tag = "v$version"
   if (git tag --list $tag) { throw "标签 $tag 已存在，先改版本号。" }
