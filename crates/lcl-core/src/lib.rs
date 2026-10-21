@@ -5,9 +5,10 @@ pub mod config;
 pub mod gpu;
 pub mod ipc;
 pub mod presets;
+pub mod sensors;
 pub mod status;
 
-pub use config::{Config, CoolingMode, Curve, FanOverride, Lcd, LcdMode, TempSource};
+pub use config::{Config, CoolingMode, Curve, FanOverride, Lcd, LcdMode, TempSource, ThemeMode};
 
 /// 标准 base64（带补齐），给屏幕预览用；数据量小，不值得为它加依赖。
 pub fn base64(bytes: &[u8]) -> String {

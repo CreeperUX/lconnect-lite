@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/lcl-devices", "crates/lcl-core", "crates/lcl-effects", "crates/lcl-media", "crates/lcl-daemon", "app/src-tauri"]
+members = ["crates/lcl-devices", "crates/lcl-core", "crates/lcl-effects", "crates/lcl-media", "crates/lcl-daemon", "crates/lcl-sensord", "app/src-tauri"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 

@@ -1,7 +1,7 @@
 # Lian Li L-Connect 3 (v2.1.29) USB 协议说明：SL-V3 无线收发器 + HydroShift II LCD-S
 
 > 目的：为自有硬件编写轻量、可互操作的替代程序。本文只覆盖最小替代所需的部分。
-> 来源：反编译的 C#（`lc3re\src`）以及 `lianli.lcd207.dll` 的 IL（这个程序集没有被反编译，我用 System.Reflection.Metadata 自写了一个 IL 转储工具来读它）。
+> 来源：反编译的 C#（只用来理解协议，仓库里不包含）以及 `lianli.lcd207.dll` 的 IL（这个程序集没有被反编译，我用 System.Reflection.Metadata 自写了一个 IL 转储工具来读它）。
 >
 > 标注约定：
 > - **[读]**：直接从代码/IL 读出。

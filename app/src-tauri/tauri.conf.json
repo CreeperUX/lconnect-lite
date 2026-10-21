@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LConnect Lite",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.creeperux.lconnect-lite",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -25,7 +25,42 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"]
-  }
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "CreeperUX",
+    "copyright": "MIT License · 与联力（Lian Li）官方无关",
+    "shortDescription": "LConnect Lite",
+    "longDescription": "隐流二代 LCD-S 水冷和 UNI FAN TL 无线风扇的轻量控制软件，L-Connect 3 的替代品。",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/lcl-daemon",
+      "binaries/lcl-sensord"
+    ],
+    "licenseFile": "installer/notice.txt",
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
+        "installerHooks": "installer/hooks.nsh"
+      }
+    },
+    "resources": {
+      "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../../vendor/pawnio/PawnIO_setup.exe": "pawnio/PawnIO_setup.exe",
+      "../../vendor/pawnio/COPYING-modules.txt": "pawnio/COPYING-modules.txt"
+    }
+  },
+  "mainBinaryName": "lcl-app"
 }

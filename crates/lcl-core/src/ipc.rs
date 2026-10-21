@@ -27,15 +27,56 @@ pub enum Request {
     Unbind { address: String },
     /// 开关某个本机设备的主板灯光同步。
     SetMbLightSync { address: String, enabled: bool },
+    /// 最近 2 分钟的读数，界面打开时用来画走势图。
+    GetHistory,
+    /// 把本机发射器和已绑定的设备切到另一个无线频道（1-39）。有设备没跟上会自动切回原频道并报错。
+    SetChannel { channel: u8 },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LcdState {
-    /// 例如“仪表盘”“图片：xxx.png”“GIF：xxx.gif（42 帧）”“未控制”。
+    /// 例如“主题：光环表盘”“图片：xxx.png”“GIF：xxx.gif（42 帧）”“未控制”。
     pub description: String,
     pub error: Option<String>,
     /// 最近一次推到屏幕上的 JPEG，base64 编码。
     pub preview_jpeg_base64: Option<String>,
+}
+
+/// 最近 [`History::LEN`] 秒的读数，每秒一个，旧的在前。没有读数的那一秒跳过（和界面的走势图一致）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct History {
+    pub coolant: Vec<f32>,
+    pub pump: Vec<f32>,
+    pub fan: Vec<f32>,
+    pub cpu: Vec<f32>,
+    pub gpu: Vec<f32>,
+    /// CPU 封装温度（lcl-sensord 在运行时才有）。
+    #[serde(default)]
+    pub cpu_temp: Vec<f32>,
+}
+
+impl History {
+    pub const LEN: usize = 120;
+
+    /// 记一秒的读数。
+    pub fn push(&mut self, s: &Status) {
+        let series = [
+            (&mut self.coolant, s.coolant_c),
+            (&mut self.pump, s.pump_rpm.map(f32::from)),
+            (&mut self.fan, s.fan_percent),
+            (&mut self.cpu, s.cpu_usage),
+            (&mut self.gpu, s.gpu_temp_c),
+            (&mut self.cpu_temp, s.cpu_temp_c),
+        ];
+        for (v, x) in series {
+            if let Some(x) = x {
+                v.push(x);
+                if v.len() > Self::LEN {
+                    v.remove(0);
+                }
+            }
+        }
+    }
 }
 
 /// 灯效能力：每种效果的颜色数、方向、能否调速。
@@ -55,6 +96,7 @@ pub enum Response {
     Autostart { enabled: bool },
     LightingCaps { caps: LightingCaps },
     LcdState { state: LcdState },
+    History { history: History },
     Ok,
     Error { message: String },
 }
@@ -104,4 +146,23 @@ where
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_keeps_last_two_minutes_and_skips_missing() {
+        let mut h = History::default();
+        for i in 0..150 {
+            let s = Status { coolant_c: Some(i as f32), pump_rpm: (i % 2 == 0).then_some(2000), ..Default::default() };
+            h.push(&s);
+        }
+        assert_eq!(h.coolant.len(), History::LEN);
+        assert_eq!(h.coolant[0], 30.0);
+        assert_eq!(*h.coolant.last().unwrap(), 149.0);
+        assert_eq!(h.pump.len(), 75);
+        assert!(h.fan.is_empty());
+    }
 }

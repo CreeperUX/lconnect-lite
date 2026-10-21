@@ -6,6 +6,17 @@
 - `vendor/HDiffPatch`：https://github.com/sisong/HDiffPatch （提交 3b9dca7），MIT，许可证见 `vendor/HDiffPatch/LICENSE`。只收录了 tinyuz 编译所需的头文件、`libdivsufsort` 和 `libParallel`。
 - `vendor/tuz_wrapper.cpp` 与 `crates/lcl-devices/tests/`（tinyuz 参考向量）来自 lian-li-linux（MIT，见下文）。
 
+## PawnIO（vendor/pawnio/）
+
+读 CPU 温度和功耗用的内核驱动，由传感器服务 lcl-sensord 通过设备 IOCTL 接口调用。
+
+- `PawnIO_setup.exe` 2.2.0：https://github.com/namazso/PawnIO.Setup ，官方签名的驱动安装程序，原样随安装包分发。
+  驱动本体 https://github.com/namazso/PawnIO 按 GPL-2.0-or-later 授权（含“只通过设备 IOCTL 接口通信的程序不受约束”的例外），
+  源码见该仓库。
+- `IntelMSR.bin`、`AMDFamily17.bin`（模块 0.2.11）：https://github.com/namazso/PawnIO.Modules 的编译产物，
+  LGPL-2.1，许可证全文见 `vendor/pawnio/COPYING-modules.txt`（安装目录 `pawnio/COPYING-modules.txt`），源码见该仓库。
+  模块嵌在 `lcl-sensord.exe` 里，原样加载，没有修改。
+
 ## lian-li-linux
 
 以下部分移植自 lian-li-linux（只改了模块路径和少量适配）：

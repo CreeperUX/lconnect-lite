@@ -21,6 +21,8 @@ const CMD_FRAME_RATE: u8 = 0x0F;
 const CMD_SET_CLOCK: u8 = 0x33;
 const CMD_STOP_CLOCK: u8 = 0x34;
 const CMD_PUSH_JPG: u8 = 0x65;
+/// PNG 叠加层，画在 JPEG 层上面（官方主题的文字、仪表都画在这层）。
+const CMD_PUSH_PNG: u8 = 0x66;
 const CMD_QUERY_BLOCK: u8 = 0x7A;
 const CMD_STOP_PLAY: u8 = 0x7B;
 
@@ -171,12 +173,22 @@ impl H2 {
     /// 推一帧 JPEG（必须是 480×480、不超过 `LCD_MAX_JPEG`）。设备缓冲水位高于 3 时
     /// 等到降到 2 以下再返回，调用方按自己的节奏推下一帧即可。
     pub fn push_jpeg(&mut self, jpeg: &[u8]) -> Result<()> {
-        anyhow::ensure!(jpeg.len() <= LCD_MAX_JPEG, "JPEG 太大（{} 字节）", jpeg.len());
-        let mut packet = self.frame(CMD_PUSH_JPG, &(jpeg.len() as u32).to_be_bytes()).to_vec();
-        packet.extend_from_slice(jpeg);
-        self.usb.write(&packet, FRAME_WRITE_TIMEOUT).context("推送 JPEG")?;
+        self.push_layer(CMD_PUSH_JPG, jpeg).context("推送 JPEG")
+    }
+
+    /// 写 PNG 叠加层。设备会一直保留这层（包括 L-Connect 主题留下的），
+    /// 推一张全透明的 PNG 才能清掉，否则会盖在 JPEG 画面上。
+    pub fn push_png(&mut self, png: &[u8]) -> Result<()> {
+        self.push_layer(CMD_PUSH_PNG, png).context("推送 PNG 叠加层")
+    }
+
+    fn push_layer(&mut self, cmd: u8, data: &[u8]) -> Result<()> {
+        anyhow::ensure!(data.len() <= LCD_MAX_JPEG, "图片太大（{} 字节）", data.len());
+        let mut packet = self.frame(cmd, &(data.len() as u32).to_be_bytes()).to_vec();
+        packet.extend_from_slice(data);
+        self.usb.write(&packet, FRAME_WRITE_TIMEOUT)?;
         let mut buf = [0u8; 512];
-        let n = self.read_reply(CMD_PUSH_JPG, &mut buf, READ_TIMEOUT)?;
+        let n = self.read_reply(cmd, &mut buf, READ_TIMEOUT)?;
         if n > 8 && buf[8] > 3 {
             self.wait_buffer(2)?;
         }

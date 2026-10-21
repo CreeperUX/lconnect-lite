@@ -1,0 +1,4 @@
+# 静态链接 MSVC 运行库：后台服务和传感器服务不依赖 vcruntime140 / msvcp140，
+# 没装过 VC++ 运行库的电脑上也能直接运行（界面由 tauri-build 自己处理）。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

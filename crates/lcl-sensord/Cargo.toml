@@ -1,0 +1,21 @@
+[package]
+name = "lcl-sensord"
+description = "LConnect Lite 传感器服务：以 SYSTEM 身份经 PawnIO 读 CPU 温度和功耗，用命名管道交给后台服务"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+lcl-core.workspace = true
+serde_json.workspace = true
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+] }

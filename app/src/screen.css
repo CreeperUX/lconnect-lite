@@ -1,0 +1,48 @@
+/* 冷头屏幕页：主题选择器 */
+.theme-card { gap: 18px; }
+.theme-groups { display: flex; flex-direction: column; gap: 16px; }
+.theme-group { display: flex; flex-direction: column; gap: 8px; }
+.theme-tier { font-size: 12px; color: var(--faint); letter-spacing: 0.08em; }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.theme-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 6px 8px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.theme-tile:hover { border-color: var(--line-3); color: var(--text); }
+.theme-tile[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.theme-thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0b0c0e;
+}
+.theme-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* 缩略图还没渲染出来（或浏览器预览里）时显示名字。 */
+.theme-thumb-name { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: 12px; }
+.theme-thumb img:not([hidden]) + .theme-thumb-name { display: none; }
+.theme-name { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+.theme-badge { padding: 0 5px; border-radius: 6px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 400; }
+.accent-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.accent-row .muted { margin-right: 4px; }
+.accent-dot { width: 26px; height: 26px; border-radius: 13px; border: 2px solid transparent; box-shadow: 0 0 0 1px var(--line-2); padding: 0; cursor: pointer; }
+.accent-dot[aria-pressed="true"] { border-color: var(--text); }
+.accent-default {
+  width: auto;
+  padding: 0 10px 0 26px;
+  position: relative;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.accent-default::before { content: ""; position: absolute; left: 6px; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 7px; background: var(--dot, var(--accent)); }

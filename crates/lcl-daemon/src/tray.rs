@@ -18,13 +18,17 @@ pub trait Host {
 
 /// 运行到 `stop` 置位（菜单“退出”也会置位）。图标创建失败（比如没有桌面会话）时只是等待退出。
 pub fn run(host: &dyn Host, stop: &AtomicBool) {
+    native_look();
+    // 第一行是实时读数，不可点。
+    let reading = MenuItem::new("LConnect Lite", false, None);
     let open = MenuItem::new("打开 LConnect Lite", true, None);
     let presets: Vec<CheckMenuItem> = PRESETS.iter().map(|p| CheckMenuItem::new(p.name, true, false, None)).collect();
     let auto = CheckMenuItem::new("开机自启", true, autostart::is_enabled(), None);
     let quit = MenuItem::new("退出后台服务", true, None);
 
     let menu = Menu::new();
-    let mut items: Vec<&dyn tray_icon::menu::IsMenuItem> = vec![&open];
+    let sep0 = PredefinedMenuItem::separator();
+    let mut items: Vec<&dyn tray_icon::menu::IsMenuItem> = vec![&reading, &sep0, &open];
     let sep1 = PredefinedMenuItem::separator();
     let sep2 = PredefinedMenuItem::separator();
     items.push(&sep1);
@@ -83,6 +87,7 @@ pub fn run(host: &dyn Host, stop: &AtomicBool) {
             if let Some(tray) = &tray {
                 let _ = tray.set_tooltip(Some(tooltip(&status)));
             }
+            reading.set_text(reading_line(&status));
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -101,6 +106,39 @@ fn tooltip(s: &Status) -> String {
     }
     // Windows 托盘提示最多 127 个字符。
     text.chars().take(120).collect()
+}
+
+fn reading_line(s: &Status) -> String {
+    let coolant = s.coolant_c.map_or("—".to_string(), |v| format!("{v:.1}"));
+    let pump = s.pump_rpm.map_or("—".to_string(), |v| v.to_string());
+    let fan = s.fan_percent.map_or("—".to_string(), |v| format!("{v:.0}"));
+    format!("水温 {coolant} °C · 泵 {pump} · 风扇 {fan}%")
+}
+
+/// 托盘菜单是系统原生菜单。后台服务默认不声明 DPI 感知，高缩放下系统会把菜单按位图放大，字是糊的；
+/// 这里声明按显示器感知 DPI，再让原生菜单用深色（和界面一致）。
+fn native_look() {
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+    // SAFETY: 两个调用都只改本进程的设置。uxtheme 的 SetPreferredAppMode（序号 135）和 FlushMenuThemes（序号 136）
+    // 没有公开声明，但从 Windows 10 1903 起稳定存在，资源管理器和 muda 的深色菜单栏也用它们；找不到就跳过。
+    unsafe {
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let name: Vec<u16> = "uxtheme.dll".encode_utf16().chain([0]).collect();
+        let lib = LoadLibraryW(name.as_ptr());
+        if lib.is_null() {
+            return;
+        }
+        if let Some(f) = GetProcAddress(lib, 135 as _) {
+            // 2 = ForceDark
+            let set_mode: unsafe extern "system" fn(i32) -> i32 = std::mem::transmute(f);
+            set_mode(2);
+        }
+        if let Some(f) = GetProcAddress(lib, 136 as _) {
+            let flush: unsafe extern "system" fn() = std::mem::transmute(f);
+            flush();
+        }
+    }
 }
 
 fn pump_messages() {
@@ -123,27 +161,8 @@ fn open_gui() {
     }
 }
 
-/// 32×32 图标，代码里画：深色圆角方块 + 琥珀色圆环和十字（和应用图标一致）。
+/// 32×32 图标：和应用图标同一个造型（app/public/logo.svg 栅格化后的原始 RGBA）。
 fn icon() -> Icon {
-    const N: usize = 32;
-    let mut rgba = vec![0u8; N * N * 4];
-    for y in 0..N {
-        for x in 0..N {
-            let (fx, fy) = (x as f32 + 0.5 - 16.0, y as f32 + 0.5 - 16.0);
-            let r = (fx * fx + fy * fy).sqrt();
-            let corner = (fx.abs() - 9.0).max(0.0).hypot((fy.abs() - 9.0).max(0.0)) - 6.5;
-            let px = &mut rgba[(y * N + x) * 4..][..4];
-            if corner > 0.0 {
-                continue;
-            }
-            let ring = (r - 9.0).abs() < 1.6;
-            let cross = (fx.abs() < 1.4 && fy.abs() < 9.5) || (fy.abs() < 1.4 && fx.abs() < 9.5);
-            if ring || cross {
-                px.copy_from_slice(&[0xF2, 0xA3, 0x3A, 0xFF]);
-            } else {
-                px.copy_from_slice(&[0x16, 0x19, 0x1C, 0xFF]);
-            }
-        }
-    }
-    Icon::from_rgba(rgba, N as u32, N as u32).expect("图标尺寸正确")
+    const RGBA: &[u8] = include_bytes!("../assets/tray-32.rgba");
+    Icon::from_rgba(RGBA.to_vec(), 32, 32).expect("图标尺寸正确")
 }

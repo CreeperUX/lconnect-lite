@@ -13,6 +13,20 @@ pub struct Status {
     pub coolant_raw_c: Option<f32>,
     /// 整机 CPU 占用率（%），来自 GetSystemTimes。
     pub cpu_usage: Option<f32>,
+    /// CPU 封装温度和功耗，来自 lcl-sensord（PawnIO）；服务没装或驱动没装时为空。
+    #[serde(default)]
+    pub cpu_temp_c: Option<f32>,
+    #[serde(default)]
+    pub cpu_power_w: Option<f32>,
+    /// 读不到 CPU 温度的原因（比如“没有安装 PawnIO 驱动”）。
+    #[serde(default)]
+    pub cpu_sensor_error: Option<String>,
+    /// CPU 温度保护正在生效（泵拉满、风扇提速）。
+    #[serde(default)]
+    pub cpu_guard: bool,
+    /// 泵的功耗前馈当前加了多少 rpm。
+    #[serde(default)]
+    pub pump_boost_rpm: Option<f32>,
     /// NVIDIA GPU（NVML）；没有 N 卡或驱动时为空。
     pub gpu_temp_c: Option<f32>,
     pub gpu_usage: Option<f32>,
@@ -33,6 +47,9 @@ pub struct Status {
     pub transmitter: Option<(String, u8)>,
     /// 最近一次控制循环里的错误，正常时为空。
     pub last_error: Option<String>,
+    /// 后台服务自身的私有内存（MB）。
+    #[serde(default)]
+    pub memory_mb: Option<f32>,
 }
 
 /// 一个无线风扇组（一条 RX 设备记录，最多 4 个风扇）。

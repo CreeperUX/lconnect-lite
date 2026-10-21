@@ -170,25 +170,30 @@ impl Wireless {
             .chain((2..=38).filter(|&c| c != 8 && c % 2 == 0))
             .chain((1..=39).filter(|&c| c % 2 == 1));
         for channel in channels {
-            let mut cmd = [0u8; 64];
-            cmd[0] = USB_CMD_GET_MAC;
-            cmd[1] = channel;
-            self.tx.flush();
-            self.tx.write(&cmd, USB_TIMEOUT).context("向 TX 发 GetMac")?;
-            let mut resp = [0u8; 64];
-            let n = self.tx.read(&mut resp, Duration::from_millis(500))?;
-            let valid = n >= 13
-                && resp[0] == USB_CMD_GET_MAC
-                && resp[1..7].iter().any(|&b| b != 0)
-                && u32::from_be_bytes(resp[7..11].try_into().unwrap()) > 1;
-            if valid {
-                self.master.copy_from_slice(&resp[1..7]);
+            if let Some((mac, firmware)) = self.get_mac(channel)? {
+                self.master = mac;
                 self.channel = channel;
-                self.tx_firmware = u16::from_be_bytes([resp[11], resp[12]]);
+                self.tx_firmware = firmware;
                 return Ok(());
             }
         }
         bail!("TX 在 1-39 所有频道上都没有回应 GetMac")
+    }
+
+    /// 在指定频道上向 TX 查询主机 MAC 和固件版本；TX 没有有效应答时返回 None。
+    fn get_mac(&mut self, channel: u8) -> Result<Option<([u8; 6], u16)>> {
+        let mut cmd = [0u8; 64];
+        cmd[0] = USB_CMD_GET_MAC;
+        cmd[1] = channel;
+        self.tx.flush();
+        self.tx.write(&cmd, USB_TIMEOUT).context("向 TX 发 GetMac")?;
+        let mut resp = [0u8; 64];
+        let n = self.tx.read(&mut resp, Duration::from_millis(500))?;
+        let valid = n >= 13
+            && resp[0] == USB_CMD_GET_MAC
+            && resp[1..7].iter().any(|&b| b != 0)
+            && u32::from_be_bytes(resp[7..11].try_into().unwrap()) > 1;
+        Ok(valid.then(|| (resp[1..7].try_into().unwrap(), u16::from_be_bytes([resp[11], resp[12]]))))
     }
 
     /// 向 RX 要设备列表（GetDev）。每页 512 字节、最多 10 条记录。
@@ -315,6 +320,68 @@ impl Wireless {
         anyhow::ensure!(dev.master == self.master, "这个设备没有绑定在本机");
         self.converge(&dev, [0; 6], 0, 0)?;
         self.save_config()
+    }
+
+    // ---------- 切换频道 ----------
+
+    /// 把本机发射器和绑定在本机的设备一起切到 `new` 频道（1-39）。和官方一样：频道只记在主机这边，
+    /// 设备靠在它当前频道上重发的绑定帧（同 rx、同 slot，只换频道）换过去。
+    ///
+    /// 逐个设备等 RX 报告它到了新频道；有设备没跟上就把所有设备切回原频道再报错，
+    /// 全部到位后才让设备保存（断电后保留）。返回切过去的设备数。
+    pub fn change_channel(&mut self, new: u8) -> Result<usize> {
+        anyhow::ensure!((1..=39).contains(&new), "频道必须在 1-39 之间");
+        let old = self.channel;
+        if new == old {
+            return Ok(0);
+        }
+        anyhow::ensure!(self.get_mac(new)?.is_some_and(|(mac, _)| mac == self.master), "发射器在频道 {new} 上没有应答");
+        let snap = self.poll()?;
+        let own: Vec<(u8, RfDevice)> = self.own_devices(&snap).into_iter().map(|(s, d)| (s, d.clone())).collect();
+
+        self.channel = new;
+        let mut failure = None;
+        for (slot, dev) in &own {
+            if let Err(e) = self.converge(dev, self.master, dev.rx_type, *slot) {
+                failure = Some(format!("{} 没有跟到频道 {new}：{e:#}", dev.mac_str()));
+                break;
+            }
+        }
+        let Some(why) = failure else {
+            self.save_config()?;
+            return Ok(own.len());
+        };
+
+        // 回退：设备可能已经换过去了、只是 RX 没听到，所以不等确认，对每个设备都在新频道上发“回到原频道”的绑定帧，
+        // 再到原频道上确认。
+        self.channel = old;
+        let _ = self.get_mac(old);
+        for (slot, dev) in &own {
+            let frame = bind_frame(dev, &self.master, dev.rx_type, old, *slot);
+            for _ in 0..3 {
+                for target in [dev.rx_type, BROADCAST] {
+                    self.send_rf(new, target, &frame)?;
+                    sleep(Duration::from_millis(30));
+                }
+            }
+        }
+        let mut stuck: Vec<String> = Vec::new();
+        for (slot, dev) in &own {
+            match self.find_live(&dev.mac) {
+                Ok((now, _)) if now.channel == old && now.master == self.master => {}
+                Ok((now, _)) => {
+                    if self.converge(&now, self.master, dev.rx_type, *slot).is_err() {
+                        stuck.push(dev.mac_str());
+                    }
+                }
+                Err(_) => stuck.push(dev.mac_str()),
+            }
+        }
+        let _ = self.save_config();
+        if stuck.is_empty() {
+            bail!("{why}；已全部切回频道 {old}")
+        }
+        bail!("{why}；切回频道 {old} 时这些设备没有确认：{}（可能还在频道 {new}，切到 {new} 再切回来可以找回）", stuck.join("、"))
     }
 
     /// 确认设备在线并取它最新的记录，以及这几轮听到的其他发射器。

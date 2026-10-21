@@ -25,6 +25,18 @@ impl CpuUsage {
     }
 }
 
+/// 本进程的私有内存（MB），显示在界面的状态卡上。
+pub fn private_memory_mb() -> Option<f32> {
+    use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: 全零是这个纯数据结构的合法值。
+    let mut c: PROCESS_MEMORY_COUNTERS_EX = unsafe { std::mem::zeroed() };
+    c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+    // SAFETY: 伪句柄不用关闭；EX 结构以 PROCESS_MEMORY_COUNTERS 开头，cb 写明了实际大小。
+    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), (&mut c as *mut PROCESS_MEMORY_COUNTERS_EX).cast::<PROCESS_MEMORY_COUNTERS>(), c.cb) };
+    (ok != 0).then(|| c.PrivateUsage as f32 / (1024.0 * 1024.0))
+}
+
 fn system_times() -> Option<(u64, u64)> {
     let zero = FILETIME {
         dwLowDateTime: 0,

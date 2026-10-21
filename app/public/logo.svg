@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 极简：深色圆角底 + TL 风扇的上下两条切角灯带 + 中心点。托盘图标用同一个造型。 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#262a30"/>
+      <stop offset="1" stop-color="#121418"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="212" fill="url(#bg)"/>
+  <g fill="none" stroke="#93e4ee" stroke-width="64" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M272 392L372 292H652L752 392"/>
+    <path d="M272 632L372 732H652L752 632"/>
+  </g>
+  <circle cx="512" cy="512" r="52" fill="#93e4ee"/>
+</svg>

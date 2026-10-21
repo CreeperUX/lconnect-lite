@@ -1,9 +1,7 @@
 //! 冷头屏幕（480×480）的画面准备：图片和 GIF 裁成正方形、旋转、压成 JPEG；
-//! 以及传感器仪表盘的渲染。屏幕本身不会旋转，旋转都在这里做。
+//! 以及传感器主题的渲染（`theme`）。屏幕本身不会旋转，旋转都在这里做。
 
-mod dashboard;
-
-pub use dashboard::{Dashboard, DashboardData};
+pub mod theme;
 
 use anyhow::{Context, Result};
 use image::codecs::gif::GifDecoder;
@@ -72,7 +70,7 @@ pub fn load_gif(path: &Path, rotation: u16, max_fps: u8) -> Result<Vec<Frame>> {
     for frame in decoder.into_frames().take(MAX_GIF_FRAMES) {
         let frame = frame.context("解码 GIF 帧")?;
         let (num, den) = frame.delay().numer_denom_ms();
-        let delay = if den == 0 { 100 } else { num / den }.max(20) + carry;
+        let delay = num.checked_div(den).unwrap_or(100).max(20) + carry;
         // 间隔太短的帧跳过，把时间累加到下一帧上。
         if delay < min_delay && !frames.is_empty() {
             carry = delay;
@@ -86,9 +84,25 @@ pub fn load_gif(path: &Path, rotation: u16, max_fps: u8) -> Result<Vec<Frame>> {
     Ok(frames)
 }
 
+/// 缩小成边长 `size` 的 JPEG（界面里的主题缩略图）。
+pub fn thumbnail(img: RgbImage, size: u32) -> Result<Vec<u8>> {
+    let size = size.clamp(64, SIZE);
+    let small = image::imageops::resize(&img, size, size, FilterType::Triangle);
+    let mut out = Vec::new();
+    JpegEncoder::new_with_quality(&mut out, 88).encode_image(&small)?;
+    Ok(out)
+}
+
 /// 纯色画面（比如“关屏”时推一张黑图）。
 pub fn solid(rgb: [u8; 3]) -> Result<Vec<u8>> {
     encode(RgbImage::from_pixel(SIZE, SIZE, image::Rgb(rgb)), 0)
+}
+
+/// 全透明的 480×480 PNG，用来清掉冷头的 PNG 叠加层。
+pub fn transparent_png() -> Result<Vec<u8>> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::new(SIZE, SIZE).write_to(&mut out, image::ImageFormat::Png)?;
+    Ok(out.into_inner())
 }
 
 #[cfg(test)]
@@ -104,6 +118,15 @@ mod tests {
         assert!(jpeg.len() <= MAX_JPEG);
         let back = image::load_from_memory(&jpeg).unwrap();
         assert_eq!((back.width(), back.height()), (SIZE, SIZE));
+    }
+
+    #[test]
+    fn transparent_png_is_small_and_fully_transparent() {
+        let png = transparent_png().unwrap();
+        assert!(png.len() < 16_384, "透明 PNG {} 字节", png.len());
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(img.dimensions(), (SIZE, SIZE));
+        assert!(img.pixels().all(|p| p.0[3] == 0));
     }
 
     #[test]

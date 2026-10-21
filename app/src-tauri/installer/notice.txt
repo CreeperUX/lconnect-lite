@@ -1,0 +1,20 @@
+LConnect Lite 0.2
+
+适用硬件
+  联力 隐流二代 LCD-S 水冷（USB 1CBE:A034）、UNI FAN TL 无线风扇、L-Wireless 收发器。
+  其他联力设备没有测试过。
+
+使用前须知
+  1. 本软件与联力（Lian Li）官方无关，不是官方产品。
+  2. 它不能和 L-Connect 3 同时运行（同一时间只能有一个程序控制设备）。
+     安装时如果检测到 L-Connect 3 的服务，会询问是否停止并禁用它；卸载本软件时可以选择恢复。
+  3. 安装后风扇和泵由本软件按曲线控制。第一次使用请确认转速和水温正常。
+  4. 读 CPU 温度和功耗需要 PawnIO 驱动（开源、带签名，Fan Control 和 LibreHardwareMonitor 也在用）。
+     没装过的话安装程序会一起装上，并注册一个读传感器的系统服务；卸载本软件时只删服务，不卸驱动。
+  5. 固件升级等功能需要官方 L-Connect 3。
+  6. 本软件按 MIT 许可提供，不附带任何担保，使用风险自负。
+
+开源组件
+  协议实现移植自 lian-li-linux（MIT）；压缩用 tinyuz / HDiffPatch（MIT）。
+  PawnIO 驱动（GPL-2.0）和模块（LGPL-2.1）原样随附，源码见 github.com/namazso。
+  详见安装目录下的 THIRD_PARTY_NOTICES.md。

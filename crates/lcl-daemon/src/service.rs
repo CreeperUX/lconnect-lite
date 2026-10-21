@@ -5,10 +5,13 @@ use crate::h2slot::H2Slot;
 use crate::lcd;
 use crate::lighting::LightingCtl;
 use lcl_core::gpu::Gpu;
-use lcl_core::ipc::LightingCaps;
+use lcl_core::ipc::{History, LightingCaps};
 use crate::{autostart, log, tray};
 use anyhow::{Context, Result};
-use lcl_core::config::{boost, CoolingMode, FanOverride, TempSource, MIN_FAN_PERCENT, PUMP_MIN_RPM};
+use lcl_core::config::{
+    boost, pump_power_boost, CoolingMode, FanOverride, TempSource, GUARD_FAN_PERCENT, GUARD_HYSTERESIS_C, MIN_FAN_PERCENT, PUMP_MIN_RPM,
+};
+use lcl_core::sensors::{self, CpuSensors};
 use lcl_core::{ipc, Config, DeviceInfo, FanGroup, Request, Response, Status, WirelessDevice};
 use std::sync::mpsc;
 use lcl_devices::h2::{H2Params, H2};
@@ -27,6 +30,9 @@ const REOPEN_INTERVAL: Duration = Duration::from_secs(5);
 /// 水温低通滤波的时间常数。设备只报整数 °C，在两个值之间来回跳会让风扇目标抖动；
 /// 冷却液本身的时间常数是分钟量级，20 秒的滤波不影响响应。
 const COOLANT_TAU: Duration = Duration::from_secs(20);
+/// CPU 功耗平滑：上升时快（负载一来泵就跟上），下降时慢（短暂停顿不让泵忽快忽慢）。
+const CPU_POWER_TAU_UP: Duration = Duration::from_secs(2);
+const CPU_POWER_TAU_DOWN: Duration = Duration::from_secs(20);
 /// 主板 PWM 采样多久没更新就当作没有信号。
 const MB_PWM_STALE: Duration = Duration::from_secs(5);
 /// 加载 NVML 失败（没有 N 卡）后隔多久再试。
@@ -36,6 +42,8 @@ struct Shared {
     status: Status,
     config: Config,
     lcd: lcd::LcdState,
+    /// 最近 2 分钟的读数：界面打开时走势图直接是满的。
+    history: History,
     /// 界面排队的设备操作，控制线程每轮开始时取走执行，结果从通道传回。
     ops: Vec<(DeviceOp, mpsc::Sender<Result<(), String>>)>,
 }
@@ -44,12 +52,19 @@ enum DeviceOp {
     Bind([u8; 6]),
     Unbind([u8; 6]),
     MbLightSync([u8; 6], bool),
+    Channel(u8),
 }
 
 /// 设备操作要等控制线程执行；绑定最多 5 秒收敛再加保存，给足余量。
 const OP_TIMEOUT: Duration = Duration::from_secs(15);
+/// 切换频道要逐个设备收敛，失败时还要回退，按设备数放宽。
+const CHANNEL_OP_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub fn serve(devices_enabled: bool) -> Result<()> {
+    if !single_instance() {
+        // 安装程序、界面、开机自启可能同时拉起后台服务；已经有一个在运行就直接退出，不去碰设备。
+        return Ok(());
+    }
     let config = Config::load_or_create()?;
     log::line(&format!(
         "后台服务启动{}；配置 {}",
@@ -60,6 +75,7 @@ pub fn serve(devices_enabled: bool) -> Result<()> {
         status: Status::default(),
         config,
         lcd: lcd::LcdState::default(),
+        history: History::default(),
         ops: Vec::new(),
     }));
 
@@ -110,6 +126,19 @@ pub fn serve(devices_enabled: bool) -> Result<()> {
     Ok(())
 }
 
+/// 用命名互斥量保证同一会话里只有一个后台服务。互斥量随进程退出释放，句柄故意不关。
+fn single_instance() -> bool {
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+    let name: Vec<u16> = "Local\\LConnectLiteDaemon".encode_utf16().chain([0]).collect();
+    // SAFETY: 名字以 0 结尾；只创建一个互斥量对象。
+    unsafe {
+        let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+        // 创建失败（极少见）时照常运行，退化成以前的行为。
+        handle.is_null() || GetLastError() != ERROR_ALREADY_EXISTS
+    }
+}
+
 fn control_loop(shared: &Mutex<Shared>, stop: &AtomicBool, devices_enabled: bool, h2: Arc<H2Slot>) {
     let mut ctl = Controller::new(devices_enabled, h2);
     let mut last_error: Option<String> = None;
@@ -130,9 +159,21 @@ fn control_loop(shared: &Mutex<Shared>, stop: &AtomicBool, devices_enabled: bool
             }
             last_error = status.last_error.clone();
         }
-        shared.lock().unwrap().status = status;
+        {
+            let mut s = shared.lock().unwrap();
+            s.history.push(&status);
+            s.status = status;
+        }
         sleep(TICK.saturating_sub(tick.elapsed()));
     }
+}
+
+/// 切换成功后把新频道记进配置，重启后照用。
+fn set_channel(shared: &Mutex<Shared>, channel: u8) -> Result<()> {
+    run_op(shared, DeviceOp::Channel(channel), CHANNEL_OP_TIMEOUT)?;
+    let mut config = shared.lock().unwrap().config.clone();
+    config.devices.channel = Some(channel);
+    apply_config(shared, config)
 }
 
 fn apply_config(shared: &Mutex<Shared>, mut config: Config) -> Result<()> {
@@ -145,9 +186,13 @@ fn apply_config(shared: &Mutex<Shared>, mut config: Config) -> Result<()> {
 /// 把设备操作交给控制线程，等它执行完。
 fn queue_op(shared: &Mutex<Shared>, address: &str, make: impl FnOnce([u8; 6]) -> DeviceOp) -> Result<()> {
     let mac = lcl_core::parse_mac(address).with_context(|| format!("无效的设备地址：{address}"))?;
+    run_op(shared, make(mac), OP_TIMEOUT)
+}
+
+fn run_op(shared: &Mutex<Shared>, op: DeviceOp, timeout: Duration) -> Result<()> {
     let (tx, rx) = mpsc::channel();
-    shared.lock().unwrap().ops.push((make(mac), tx));
-    match rx.recv_timeout(OP_TIMEOUT) {
+    shared.lock().unwrap().ops.push((op, tx));
+    match rx.recv_timeout(timeout) {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(anyhow::anyhow!(e)),
         Err(_) => Err(anyhow::anyhow!("操作超时（后台服务忙或设备没有响应）")),
@@ -191,9 +236,15 @@ fn handle(shared: &Mutex<Shared>, req: Request) -> Response {
                 },
             };
         }
+        Request::GetHistory => {
+            return Response::History {
+                history: shared.lock().unwrap().history.clone(),
+            }
+        }
         Request::Bind { address } => queue_op(shared, &address, DeviceOp::Bind),
         Request::Unbind { address } => queue_op(shared, &address, DeviceOp::Unbind),
         Request::SetMbLightSync { address, enabled } => queue_op(shared, &address, |mac| DeviceOp::MbLightSync(mac, enabled)),
+        Request::SetChannel { channel } => set_channel(shared, channel),
         Request::SetConfig { config } => apply_config(shared, config),
         Request::SetAutostart { enabled } => autostart::set(enabled),
     };
@@ -242,6 +293,16 @@ struct Controller {
     /// 最近一次有效的主板 PWM 采样（RX 偶尔回坏包时用缓存，不带这个值）。
     mb_pwm: Option<(u8, Instant)>,
     errors: Vec<String>,
+    /// 新连上的发射器还没换到配置里记的频道。只在连上时换一次：切换频道操作成功后、配置写入前，
+    /// 不能被每轮的配置覆盖回去。
+    channel_pending: bool,
+    /// 最近一次读到的 CPU 温度 / 功耗（lcl-sensord），以及读不到的原因。
+    cpu_sensors: Option<(CpuSensors, Instant)>,
+    cpu_sensor_error: Option<String>,
+    /// 平滑后的 CPU 功耗：上升快、下降慢，泵不会跟着瞬时尖峰来回变。
+    cpu_power: Option<f32>,
+    /// CPU 温度保护是否在生效（带回差）。
+    cpu_guard: bool,
 }
 
 impl Controller {
@@ -265,6 +326,11 @@ impl Controller {
             last_full: None,
             mb_pwm: None,
             errors: Vec::new(),
+            channel_pending: false,
+            cpu_sensors: None,
+            cpu_sensor_error: None,
+            cpu_power: None,
+            cpu_guard: false,
         }
     }
 
@@ -287,7 +353,18 @@ impl Controller {
         self.update_gpu(config);
         self.errors.clear();
         self.cpu_usage = self.cpu.sample();
+        let (cpu_temp, cpu_power_raw) = self.read_cpu_sensors();
+        self.cpu_power = match (self.cpu_power, cpu_power_raw) {
+            (Some(prev), Some(p)) => Some(low_pass(prev, p, TICK, if p > prev { CPU_POWER_TAU_UP } else { CPU_POWER_TAU_DOWN })),
+            (_, p) => p,
+        };
         self.ensure_devices();
+        if self.channel_pending {
+            self.channel_pending = false;
+            if let (Some(wl), Some(channel)) = (self.wl.as_mut(), config.devices.channel) {
+                wl.channel = channel;
+            }
+        }
 
         let full = self.poll_wireless();
         self.last_full = full.clone();
@@ -362,10 +439,35 @@ impl Controller {
         } else {
             0.0
         };
-        let fan_target = (fan_curve_target.unwrap_or(c.fixed_fan_percent) + boost).clamp(MIN_FAN_PERCENT, 100.0);
-        let pump_rpm = pump_target.unwrap_or(c.fixed_pump_rpm).clamp(PUMP_MIN_RPM, max_pump).round() as u16;
+        let mut fan_target = (fan_curve_target.unwrap_or(c.fixed_fan_percent) + boost).clamp(MIN_FAN_PERCENT, 100.0);
+        // 泵的功耗前馈：只叠加在曲线上，功耗一上来泵就加速，不等水温。
+        let pump_boost = (c.mode == CoolingMode::Curve && c.pump_power_boost_rpm > 0.0)
+            .then(|| self.cpu_power.map(|p| pump_power_boost(p, c.pump_power_boost_rpm)))
+            .flatten();
+        let mut pump_rpm_f = pump_target.unwrap_or(c.fixed_pump_rpm) + pump_boost.unwrap_or(0.0);
 
-        let step = c.fan_slew_percent_per_s * TICK.as_secs_f32();
+        // CPU 温度保护（所有控制方式下都生效）：到上限泵拉满、风扇至少 GUARD_FAN_PERCENT，降过回差才恢复。
+        let guard = match (c.cpu_temp_limit_c > 0.0, cpu_temp) {
+            (true, Some(t)) if t >= c.cpu_temp_limit_c => true,
+            (true, Some(t)) if self.cpu_guard && t > c.cpu_temp_limit_c - GUARD_HYSTERESIS_C => true,
+            _ => false,
+        };
+        if guard != self.cpu_guard {
+            log::line(&match (guard, cpu_temp) {
+                (true, Some(t)) => format!("CPU 温度 {t:.0} °C 到上限 {:.0} °C：泵拉满、风扇提速", c.cpu_temp_limit_c),
+                _ => format!("CPU 温度降到 {} °C 以下，恢复正常控制", (c.cpu_temp_limit_c - GUARD_HYSTERESIS_C).round()),
+            });
+            self.cpu_guard = guard;
+        }
+        if guard {
+            pump_rpm_f = max_pump;
+            fan_target = fan_target.max(GUARD_FAN_PERCENT);
+        }
+        let pump_rpm = pump_rpm_f.clamp(PUMP_MIN_RPM, max_pump).round() as u16;
+
+        // 温度保护时风扇提速不受限速约束太久：至少每秒 20 个百分点。
+        let slew = if guard { c.fan_slew_percent_per_s.max(20.0) } else { c.fan_slew_percent_per_s };
+        let step = slew * TICK.as_secs_f32();
         let fan = match self.fan_percent {
             Some(prev) => prev + (fan_target - prev).clamp(-step, step),
             None => fan_target,
@@ -410,7 +512,29 @@ impl Controller {
         status.gpu_power_w = gpu.power_w;
         status.mb_pwm_percent = mb_percent;
         status.boost_percent = Some(boost);
+        status.cpu_temp_c = cpu_temp;
+        status.cpu_power_w = cpu_power_raw;
+        status.cpu_sensor_error = self.cpu_sensor_error.clone();
+        status.cpu_guard = guard;
+        status.pump_boost_rpm = pump_boost;
         status
+    }
+
+    /// 向 lcl-sensord 要 CPU 温度和功耗。服务偶尔忙（一次只接一个连接），3 秒内用上一次的读数。
+    fn read_cpu_sensors(&mut self) -> (Option<f32>, Option<f32>) {
+        match sensors::read() {
+            Some(s) => {
+                self.cpu_sensor_error = s.error.clone().filter(|_| s.temp_c.is_none());
+                self.cpu_sensors = Some((s, Instant::now()));
+            }
+            None => {
+                if self.cpu_sensors.as_ref().is_none_or(|(_, at)| at.elapsed() > Duration::from_secs(3)) {
+                    self.cpu_sensors = None;
+                    self.cpu_sensor_error = Some("传感器服务没有运行（LConnectLiteSensors）".into());
+                }
+            }
+        }
+        self.cpu_sensors.as_ref().map_or((None, None), |(s, _)| (s.temp_c, s.power_w))
     }
 
     fn ensure_devices(&mut self) {
@@ -438,7 +562,10 @@ impl Controller {
         }
         if self.wl.is_none() {
             match Wireless::connect(false) {
-                Ok(wl) => self.wl = wl,
+                Ok(wl) => {
+                    self.channel_pending = wl.is_some();
+                    self.wl = wl;
+                }
                 Err(e) => self.errors.push(format!("无线：{e:#}")),
             }
         }
@@ -570,6 +697,7 @@ impl Controller {
             wireless,
             transmitter: self.wl.as_ref().map(|wl| (fmt_mac(&wl.master), wl.channel)),
             last_error: (!self.errors.is_empty()).then(|| self.errors.join("；")),
+            memory_mb: crate::cpu::private_memory_mb(),
             ..Status::default()
         }
     }
@@ -583,6 +711,14 @@ impl Controller {
                     let r = match op {
                         DeviceOp::Bind(mac) => wl.bind(&mac).map(|rx| log::line(&format!("已绑定 {}，rx {rx}", fmt_mac(&mac)))),
                         DeviceOp::Unbind(mac) => wl.unbind(&mac).map(|()| log::line(&format!("已解绑 {}", fmt_mac(&mac)))),
+                        DeviceOp::Channel(channel) => {
+                            let old = wl.channel;
+                            wl.change_channel(channel).map(|n| {
+                                if old != channel {
+                                    log::line(&format!("无线频道 {old} → {channel}，{n} 个设备已跟过去"));
+                                }
+                            })
+                        }
                         DeviceOp::MbLightSync(mac, on) => {
                             let snap = wl.cached();
                             match wl.own_devices(&snap).into_iter().find(|(_, d)| d.mac == mac).map(|(s, d)| (s, d.clone())) {

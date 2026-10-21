@@ -25,6 +25,10 @@ pub struct Devices {
     /// 锁定绑定：非空时只控制列表里的无线设备（MAC），其他绑定在本机的设备一律不碰。
     /// 和官方的“锁定”一样只在主机这边生效，不向设备发任何东西。
     pub locked: Vec<String>,
+    /// 本机发射器的无线频道（1-39）；没设过时用发射器应答的频道（默认 8）。
+    /// 和官方一样只记在主机这边，设备那边的频道由切换操作改。
+    #[serde(default)]
+    pub channel: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -33,7 +37,7 @@ pub enum LcdMode {
     /// 不碰屏幕，保持设备上现有的画面（比如 L-Connect 之前设的）。
     #[default]
     Unmanaged,
-    /// 传感器仪表盘（水温、泵速、风扇、CPU、GPU），每秒刷新。
+    /// 传感器主题（水温、泵速、风扇、CPU、GPU、时间），内容变了才重画，最多每秒一次。
     Dashboard,
     /// 一张静态图片。
     Image,
@@ -56,6 +60,33 @@ pub struct Lcd {
     pub max_fps: u8,
     /// 离线时钟：电脑没在推画面（比如关机后冷头仍通电）时屏幕显示时钟。
     pub offline_clock: bool,
+    /// 传感器主题的 id（见 lcl-media 的 `theme::THEMES`）。
+    pub theme: String,
+    pub theme_mode: ThemeMode,
+    /// 强调色；None 用主题自己的默认色。
+    pub accent: Option<[u8; 3]>,
+}
+
+/// 主题的明暗。只有暗色的主题（复古液晶、霓虹等）总是暗色。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeMode {
+    #[default]
+    Dark,
+    Light,
+    /// 7:00–19:00 用亮色，其余时间暗色。
+    Auto,
+}
+
+impl ThemeMode {
+    /// 按当前小时决定是不是暗色。
+    pub fn is_dark(self, hour: u8) -> bool {
+        match self {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::Auto => !(7..19).contains(&hour),
+        }
+    }
 }
 
 impl Default for Lcd {
@@ -67,6 +98,9 @@ impl Default for Lcd {
             media_path: String::new(),
             max_fps: 20,
             offline_clock: false,
+            theme: "ring".into(),
+            theme_mode: ThemeMode::Dark,
+            accent: None,
         }
     }
 }
@@ -80,6 +114,16 @@ pub struct Lighting {
     /// 无线风扇：一个“全部”区域，或者“上弧”“下弧”两个区域。
     pub fans: Vec<RgbRegionConfig>,
     /// 冷头灯圈。
+    pub pump: RgbEffect,
+    /// 用户保存的灯效场景（只由界面使用，后台服务不读）。
+    pub scenes: Vec<LightingScene>,
+}
+
+/// 一组完整的灯效设置：风扇和冷头灯圈一起切换。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LightingScene {
+    pub name: String,
+    pub fans: Vec<RgbRegionConfig>,
     pub pump: RgbEffect,
 }
 
@@ -96,6 +140,7 @@ impl Default for Lighting {
                 flip: false,
             }],
             pump: rainbow,
+            scenes: Vec::new(),
         }
     }
 }
@@ -150,7 +195,27 @@ pub struct Cooling {
     pub cpu_boost_percent: f32,
     /// 前馈：GPU 满载时额外加多少个百分点。0 关闭。
     pub gpu_boost_percent: f32,
+    /// 泵的功耗前馈：CPU 封装功耗到 [`PUMP_BOOST_FULL_W`] 时在泵曲线上额外加多少 rpm（线性，
+    /// [`PUMP_BOOST_FROM_W`] 以下不加）。负载一上来泵立刻加速，不用等水温升起来。0 关闭。
+    pub pump_power_boost_rpm: f32,
+    /// CPU 温度保护：封装温度到这里时泵拉满、风扇至少 [`GUARD_FAN_PERCENT`]，降到低于它
+    /// [`GUARD_HYSTERESIS_C`] 才恢复。所有控制方式下都生效。0 关闭。
+    pub cpu_temp_limit_c: f32,
     pub fan_overrides: Vec<FanOverride>,
+}
+
+/// 功耗前馈从多少瓦开始加（低于它算空闲 / 轻载）。
+pub const PUMP_BOOST_FROM_W: f32 = 50.0;
+/// 功耗到多少瓦时前馈加满。
+pub const PUMP_BOOST_FULL_W: f32 = 200.0;
+/// 温度保护时风扇至少这么快（%）。
+pub const GUARD_FAN_PERCENT: f32 = 80.0;
+/// 温度保护的回差（°C）。
+pub const GUARD_HYSTERESIS_C: f32 = 8.0;
+
+/// 泵的功耗前馈量（rpm）。
+pub fn pump_power_boost(power_w: f32, boost_rpm: f32) -> f32 {
+    ((power_w - PUMP_BOOST_FROM_W) / (PUMP_BOOST_FULL_W - PUMP_BOOST_FROM_W)).clamp(0.0, 1.0) * boost_rpm
 }
 
 impl Default for Cooling {
@@ -169,6 +234,8 @@ impl Default for Cooling {
             fan_slew_percent_per_s: 5.0,
             cpu_boost_percent: 0.0,
             gpu_boost_percent: 0.0,
+            pump_power_boost_rpm: 600.0,
+            cpu_temp_limit_c: 90.0,
             fan_overrides: Vec::new(),
         }
     }
@@ -300,6 +367,14 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn pump_power_boost_is_linear_between_thresholds() {
+        assert_eq!(pump_power_boost(30.0, 600.0), 0.0);
+        assert_eq!(pump_power_boost(125.0, 600.0), 300.0);
+        assert_eq!(pump_power_boost(300.0, 600.0), 600.0);
+    }
+
     use super::*;
 
     #[test]
