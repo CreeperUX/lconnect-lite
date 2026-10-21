@@ -1,0 +1,16 @@
+[package]
+name = "lcl-devices"
+description = "隐流二代冷头与 L-Wireless 无线设备的 USB 协议层"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+cbc.workspace = true
+des.workspace = true
+rusb.workspace = true
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_SystemInformation"] }
+
+[build-dependencies]
+cc = "1.0"

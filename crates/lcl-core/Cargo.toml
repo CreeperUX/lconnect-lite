@@ -1,0 +1,20 @@
+[package]
+name = "lcl-core"
+description = "后台服务与 GUI 共用的配置、状态与命名管道协议"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# GPU 读数（NVIDIA NVML）。nvml.dll 一旦加载就卸不掉、要占二十多 MB，
+# 所以后台服务只在控制需要时才打开，界面显示用的读数由界面进程自己读。
+nvml = ["dep:nvml-wrapper"]
+
+[dependencies]
+anyhow.workspace = true
+interprocess.workspace = true
+lcl-effects.workspace = true
+nvml-wrapper = { version = "0.13", optional = true }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true

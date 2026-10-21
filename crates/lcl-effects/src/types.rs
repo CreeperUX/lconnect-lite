@@ -1,0 +1,675 @@
+//! 灯效类型：移植自 lian-li-linux `crates/lianli-shared/src/rgb.rs`（MIT），删去了有线设备专用的部分。
+
+
+use serde::{Deserialize, Serialize};
+
+/// Supported RGB effect modes.
+///
+/// These map to hardware-native modes for wired devices (TL Fan, ENE 6K77, Galahad2).
+/// For wireless devices, effects are host-rendered and streamed as RGB frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RgbMode {
+    Off,
+    Direct,          // Per-LED control (used by OpenRGB UpdateLEDs)
+    Static,          // Solid color
+    Rainbow,         // 1
+    RainbowMorph,    // 2
+    Breathing,       // 4
+    Runway,          // 5
+    Meteor,          // 6
+    ColorCycle,      // 7
+    Staggered,       // 8
+    Tide,            // 9
+    Mixing,          // 10
+    Voice,           // 11
+    Door,            // 12
+    Render,          // 13
+    Ripple,          // 14
+    Reflect,         // 15
+    TailChasing,     // 16
+    Paint,           // 17
+    PingPong,        // 18
+    Stack,           // 19
+    StackMulti,      // 20 (ENE6K77 single-ring)
+    Neon,            // 21 (ENE6K77 single-ring)
+    CoverCycle,      // 22
+    Wave,            // 21
+    Racing,          // 22
+    Lottery,         // 23
+    Intertwine,      // 24
+    MeteorShower,    // 25
+    Collide,         // 26
+    ElectricCurrent, // 27
+    Kaleidoscope,    // 28
+    // Pump-specific modes (Galahad2 Trinity)
+    BigBang,
+    Vortex,
+    Pump,
+    ColorsMorph,
+    TaiChi,
+    CrossingOver,
+    ColorfulStarryNight,
+    StaticStarryNight,
+    Bounce,
+    // HydroShift LCD / Galahad2 LCD / Galahad2 Vision
+    TickerTape,
+    Fluctuation,
+    Transmit,
+    Burst,
+    // ENE6K77 extended modes (AL/SLInfinity/ALV2 per-variant)
+    MopUp,
+    PacMan,
+    MeteorRainbow,
+    Spring,
+    Scan,
+    Contest,
+    Warning,
+    SpanningTeacups,
+    Tornado,
+    DoubleMeteor,
+    MeteorContest,
+    MeteorMix,
+    ReturnArc,
+    DoubleArc,
+    HeartBeat,
+    HeartBeatRunway,
+    Disco,
+    SeaFlow,
+    Echo,
+    ColorfulCity,
+    Twinkle,
+    Groove,
+    Tunnel,
+    BreathingRainbow,
+    StaticColorful,
+    BreathingColorful,
+    // Strimer Plus modes
+    Snooker,
+    BlowUp,
+    ShockWave,
+    BulletStack,
+    Drizzling,
+    FadeOut,
+    ColorTransfer,
+    CrossOver,
+    Parallel,
+    Endless,
+    River,
+    Duel,
+    Hourglass,
+    Pioneer,
+    ShuttleRun,
+    GradientRibbon,
+    RainbowWave,
+    ColorfulMeteor,
+    Wing,
+    Drumming,
+    Boomerang,
+    CandyBox,
+    Transformation,
+}
+
+impl RgbMode {
+    /// Map to TL Fan / Galahad2 mode byte (1-28+). Returns None for non-mappable modes.
+    pub fn to_tl_mode_byte(self) -> Option<u8> {
+        match self {
+            Self::Rainbow => Some(1),
+            Self::RainbowMorph => Some(2),
+            Self::Static => Some(3),
+            Self::Breathing => Some(4),
+            Self::Runway => Some(5),
+            Self::Meteor => Some(6),
+            Self::ColorCycle => Some(7),
+            Self::Staggered => Some(8),
+            Self::Tide => Some(9),
+            Self::Mixing => Some(10),
+            Self::Voice => Some(11),
+            Self::Door => Some(12),
+            Self::Render => Some(13),
+            Self::Ripple => Some(14),
+            Self::Reflect => Some(15),
+            Self::TailChasing => Some(16),
+            Self::Paint => Some(17),
+            Self::PingPong => Some(18),
+            Self::Stack => Some(19),
+            Self::CoverCycle => Some(20),
+            Self::Wave => Some(21),
+            Self::Racing => Some(22),
+            Self::Lottery => Some(23),
+            Self::Intertwine => Some(24),
+            Self::MeteorShower => Some(25),
+            Self::Collide => Some(26),
+            Self::ElectricCurrent => Some(27),
+            Self::Kaleidoscope => Some(28),
+            _ => None,
+        }
+    }
+
+    pub fn to_galahad2_mode_byte(self) -> Option<u8> {
+        match self {
+            Self::Rainbow => Some(1),
+            Self::RainbowMorph => Some(2),
+            Self::Static => Some(3),
+            Self::Breathing => Some(4),
+            Self::Runway => Some(5),
+            Self::Meteor => Some(6),
+            Self::Vortex => Some(7),
+            Self::CrossingOver => Some(8),
+            Self::TaiChi => Some(9),
+            Self::ColorfulStarryNight => Some(10),
+            Self::StaticStarryNight => Some(11),
+            Self::Voice => Some(12),
+            Self::BigBang => Some(13),
+            Self::Pump => Some(14),
+            Self::ColorsMorph => Some(15),
+            Self::Bounce => Some(16),
+            _ => None,
+        }
+    }
+
+    pub fn to_hydroshift_lcd_mode_byte(self) -> Option<u8> {
+        match self {
+            Self::Rainbow => Some(1),
+            Self::RainbowMorph => Some(2),
+            Self::Static => Some(3),
+            Self::Breathing => Some(4),
+            Self::Runway => Some(5),
+            Self::Meteor => Some(6),
+            Self::TickerTape => Some(7),
+            Self::Fluctuation => Some(8),
+            Self::Transmit => Some(9),
+            Self::ColorfulStarryNight => Some(10),
+            Self::StaticStarryNight => Some(11),
+            Self::Voice => Some(12),
+            Self::BigBang => Some(13),
+            Self::Burst => Some(14),
+            Self::ColorsMorph => Some(15),
+            Self::Bounce => Some(16),
+            _ => None,
+        }
+    }
+
+    pub fn is_valid_galahad2_pump_scope(self, scope: RgbScope) -> bool {
+        let Some(byte) = self.to_galahad2_mode_byte() else {
+            return false;
+        };
+        match scope {
+            RgbScope::Inner => matches!(byte, 1..=6 | 9..=12 | 14),
+            RgbScope::Outer => matches!(byte, 1..=6 | 9..=12 | 14 | 16),
+            _ => matches!(byte, 1..=15),
+        }
+    }
+
+    /// Map from TL Fan mode byte to RgbMode.
+    pub fn from_tl_mode_byte(byte: u8) -> Option<Self> {
+        match byte {
+            1 => Some(Self::Rainbow),
+            2 => Some(Self::RainbowMorph),
+            3 => Some(Self::Static),
+            4 => Some(Self::Breathing),
+            5 => Some(Self::Runway),
+            6 => Some(Self::Meteor),
+            7 => Some(Self::ColorCycle),
+            8 => Some(Self::Staggered),
+            9 => Some(Self::Tide),
+            10 => Some(Self::Mixing),
+            11 => Some(Self::Voice),
+            12 => Some(Self::Door),
+            13 => Some(Self::Render),
+            14 => Some(Self::Ripple),
+            15 => Some(Self::Reflect),
+            16 => Some(Self::TailChasing),
+            17 => Some(Self::Paint),
+            18 => Some(Self::PingPong),
+            19 => Some(Self::Stack),
+            20 => Some(Self::CoverCycle),
+            21 => Some(Self::Wave),
+            22 => Some(Self::Racing),
+            23 => Some(Self::Lottery),
+            24 => Some(Self::Intertwine),
+            25 => Some(Self::MeteorShower),
+            26 => Some(Self::Collide),
+            27 => Some(Self::ElectricCurrent),
+            28 => Some(Self::Kaleidoscope),
+            _ => None,
+        }
+    }
+
+    /// Inverse of `to_galahad2_mode_byte`.
+    pub fn from_galahad2_mode_byte(byte: u8) -> Option<Self> {
+        match byte {
+            1 => Some(Self::Rainbow),
+            2 => Some(Self::RainbowMorph),
+            3 => Some(Self::Static),
+            4 => Some(Self::Breathing),
+            5 => Some(Self::Runway),
+            6 => Some(Self::Meteor),
+            7 => Some(Self::Vortex),
+            8 => Some(Self::CrossingOver),
+            9 => Some(Self::TaiChi),
+            10 => Some(Self::ColorfulStarryNight),
+            11 => Some(Self::StaticStarryNight),
+            12 => Some(Self::Voice),
+            13 => Some(Self::BigBang),
+            14 => Some(Self::Pump),
+            15 => Some(Self::ColorsMorph),
+            16 => Some(Self::Bounce),
+            _ => None,
+        }
+    }
+
+    /// Inverse of `to_hydroshift_lcd_mode_byte`.
+    pub fn from_hydroshift_lcd_mode_byte(byte: u8) -> Option<Self> {
+        match byte {
+            1 => Some(Self::Rainbow),
+            2 => Some(Self::RainbowMorph),
+            3 => Some(Self::Static),
+            4 => Some(Self::Breathing),
+            5 => Some(Self::Runway),
+            6 => Some(Self::Meteor),
+            7 => Some(Self::TickerTape),
+            8 => Some(Self::Fluctuation),
+            9 => Some(Self::Transmit),
+            10 => Some(Self::ColorfulStarryNight),
+            11 => Some(Self::StaticStarryNight),
+            12 => Some(Self::Voice),
+            13 => Some(Self::BigBang),
+            14 => Some(Self::Burst),
+            15 => Some(Self::ColorsMorph),
+            16 => Some(Self::Bounce),
+            _ => None,
+        }
+    }
+
+    /// Family-aware mode-byte lookup.
+    ///
+    /// Single entry point for driver code: pass the device family, get the
+    /// hardware byte (or `None` if the mode isn't supported by that family).
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Direct => "Direct",
+            Self::Static => "Static",
+            Self::Rainbow => "Rainbow",
+            Self::RainbowMorph => "Rainbow Morph",
+            Self::Breathing => "Breathing",
+            Self::Runway => "Runway",
+            Self::Meteor => "Meteor",
+            Self::ColorCycle => "Color Cycle",
+            Self::Staggered => "Staggered",
+            Self::Tide => "Tide",
+            Self::Mixing => "Mixing",
+            Self::Voice => "Voice",
+            Self::Door => "Door",
+            Self::Render => "Render",
+            Self::Ripple => "Ripple",
+            Self::Reflect => "Reflect",
+            Self::TailChasing => "Tail Chasing",
+            Self::Paint => "Paint",
+            Self::PingPong => "Ping Pong",
+            Self::Stack => "Stack",
+            Self::StackMulti => "Stack Multi",
+            Self::Neon => "Neon",
+            Self::CoverCycle => "Cover Cycle",
+            Self::Wave => "Wave",
+            Self::Racing => "Racing",
+            Self::Lottery => "Lottery",
+            Self::Intertwine => "Intertwine",
+            Self::MeteorShower => "Meteor Shower",
+            Self::Collide => "Collide",
+            Self::ElectricCurrent => "Electric Current",
+            Self::Kaleidoscope => "Kaleidoscope",
+            Self::BigBang => "Big Bang",
+            Self::Vortex => "Vortex",
+            Self::Pump => "Pump",
+            Self::ColorsMorph => "Colors Morph",
+            Self::TaiChi => "Tai Chi",
+            Self::CrossingOver => "Crossing Over",
+            Self::ColorfulStarryNight => "Colorful Starry Night",
+            Self::StaticStarryNight => "Static Starry Night",
+            Self::Bounce => "Bounce",
+            Self::TickerTape => "Ticker Tape",
+            Self::Fluctuation => "Fluctuation",
+            Self::Transmit => "Transmit",
+            Self::Burst => "Burst",
+            Self::MopUp => "Mop Up",
+            Self::PacMan => "PacMan",
+            Self::MeteorRainbow => "Meteor Rainbow",
+            Self::Spring => "Spring",
+            Self::Scan => "Scan",
+            Self::Contest => "Contest",
+            Self::Warning => "Warning",
+            Self::SpanningTeacups => "Spanning Teacups",
+            Self::Tornado => "Tornado",
+            Self::DoubleMeteor => "Double Meteor",
+            Self::MeteorContest => "Meteor Contest",
+            Self::MeteorMix => "Meteor Mix",
+            Self::ReturnArc => "Return Arc",
+            Self::DoubleArc => "Double Arc",
+            Self::HeartBeat => "Heart Beat",
+            Self::HeartBeatRunway => "Heart Beat Runway",
+            Self::Disco => "Disco",
+            Self::SeaFlow => "Sea Flow",
+            Self::Echo => "Echo",
+            Self::ColorfulCity => "Colorful City",
+            Self::Twinkle => "Twinkle",
+            Self::Groove => "Groove",
+            Self::Tunnel => "Tunnel",
+            Self::BreathingRainbow => "Breathing Rainbow",
+            Self::Snooker => "Snooker",
+            Self::BlowUp => "Blow Up",
+            Self::ShockWave => "Shock Wave",
+            Self::BulletStack => "Bullet Stack",
+            Self::Drizzling => "Drizzling",
+            Self::FadeOut => "Fade Out",
+            Self::ColorTransfer => "Color Transfer",
+            Self::CrossOver => "Cross Over",
+            Self::Parallel => "Parallel",
+            Self::Endless => "Endless",
+            Self::River => "River",
+            Self::Duel => "Duel",
+            Self::Hourglass => "Hourglass",
+            Self::Pioneer => "Pioneer",
+            Self::ShuttleRun => "Shuttle Run",
+            Self::GradientRibbon => "Gradient Ribbon",
+            Self::RainbowWave => "Rainbow Wave",
+            Self::ColorfulMeteor => "Colorful Meteor",
+            Self::Wing => "Wing",
+            Self::Drumming => "Drumming",
+            Self::Boomerang => "Boomerang",
+            Self::CandyBox => "Candy Box",
+            Self::Transformation => "Transformation",
+            Self::StaticColorful => "Static corner colors",
+            Self::BreathingColorful => "Breathing corner colors",
+        }
+    }
+
+    /// Inverse of `display_name` — parse a mode from its GUI string.
+    ///
+    /// Used by the OpenRGB server (which receives mode names back from clients)
+    /// and by the GUI when reading a serialized preset. Case-sensitive; pass
+    /// strings produced by `display_name()` for guaranteed round-trip.
+    pub fn from_display_name(name: &str) -> Option<Self> {
+        if name.is_empty() {
+            return None;
+        }
+        // Off is intentionally NOT in this list: it is a sentinel used by the
+        // GUI but the OpenRGB protocol never sends "Off" — it sends brightness 0.
+        Some(match name {
+            "Direct" => Self::Direct,
+            "Static" => Self::Static,
+            "Rainbow" => Self::Rainbow,
+            "Rainbow Morph" => Self::RainbowMorph,
+            "Breathing" => Self::Breathing,
+            "Runway" => Self::Runway,
+            "Meteor" => Self::Meteor,
+            "Color Cycle" => Self::ColorCycle,
+            "Staggered" => Self::Staggered,
+            "Tide" => Self::Tide,
+            "Mixing" => Self::Mixing,
+            "Voice" => Self::Voice,
+            "Door" => Self::Door,
+            "Render" => Self::Render,
+            "Ripple" => Self::Ripple,
+            "Reflect" => Self::Reflect,
+            "Tail Chasing" => Self::TailChasing,
+            "Paint" => Self::Paint,
+            "Ping Pong" => Self::PingPong,
+            "Stack" => Self::Stack,
+            "Stack Multi" => Self::StackMulti,
+            "Neon" => Self::Neon,
+            "Cover Cycle" => Self::CoverCycle,
+            "Wave" => Self::Wave,
+            "Racing" => Self::Racing,
+            "Lottery" => Self::Lottery,
+            "Intertwine" => Self::Intertwine,
+            "Meteor Shower" => Self::MeteorShower,
+            "Collide" => Self::Collide,
+            "Electric Current" => Self::ElectricCurrent,
+            "Kaleidoscope" => Self::Kaleidoscope,
+            "Big Bang" => Self::BigBang,
+            "Vortex" => Self::Vortex,
+            "Pump" => Self::Pump,
+            "Colors Morph" => Self::ColorsMorph,
+            "Tai Chi" => Self::TaiChi,
+            "Crossing Over" => Self::CrossingOver,
+            "Colorful Starry Night" => Self::ColorfulStarryNight,
+            "Static Starry Night" => Self::StaticStarryNight,
+            "Bounce" => Self::Bounce,
+            "Ticker Tape" => Self::TickerTape,
+            "Fluctuation" => Self::Fluctuation,
+            "Transmit" => Self::Transmit,
+            "Burst" => Self::Burst,
+            "Mop Up" => Self::MopUp,
+            "PacMan" => Self::PacMan,
+            "Meteor Rainbow" => Self::MeteorRainbow,
+            "Spring" => Self::Spring,
+            "Scan" => Self::Scan,
+            "Contest" => Self::Contest,
+            "Warning" => Self::Warning,
+            "Spanning Teacups" => Self::SpanningTeacups,
+            "Tornado" => Self::Tornado,
+            "Double Meteor" => Self::DoubleMeteor,
+            "Meteor Contest" => Self::MeteorContest,
+            "Meteor Mix" => Self::MeteorMix,
+            "Return Arc" => Self::ReturnArc,
+            "Double Arc" => Self::DoubleArc,
+            "Heart Beat" => Self::HeartBeat,
+            "Heart Beat Runway" => Self::HeartBeatRunway,
+            "Disco" => Self::Disco,
+            "Sea Flow" => Self::SeaFlow,
+            "Echo" => Self::Echo,
+            "Colorful City" => Self::ColorfulCity,
+            "Twinkle" => Self::Twinkle,
+            "Groove" => Self::Groove,
+            "Tunnel" => Self::Tunnel,
+            "Breathing Rainbow" => Self::BreathingRainbow,
+            "Snooker" => Self::Snooker,
+            "Blow Up" => Self::BlowUp,
+            "Shock Wave" => Self::ShockWave,
+            "Bullet Stack" => Self::BulletStack,
+            "Drizzling" => Self::Drizzling,
+            "Fade Out" => Self::FadeOut,
+            "Color Transfer" => Self::ColorTransfer,
+            "Cross Over" => Self::CrossOver,
+            "Parallel" => Self::Parallel,
+            "Endless" => Self::Endless,
+            "River" => Self::River,
+            "Duel" => Self::Duel,
+            "Hourglass" => Self::Hourglass,
+            "Pioneer" => Self::Pioneer,
+            "Shuttle Run" => Self::ShuttleRun,
+            "Gradient Ribbon" => Self::GradientRibbon,
+            "Rainbow Wave" => Self::RainbowWave,
+            "Colorful Meteor" => Self::ColorfulMeteor,
+            "Wing" => Self::Wing,
+            "Drumming" => Self::Drumming,
+            "Boomerang" => Self::Boomerang,
+            "Candy Box" => Self::CandyBox,
+            "Transformation" => Self::Transformation,
+            _ => return None,
+        })
+    }
+}
+
+/// Effect animation direction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum RgbDirection {
+    #[default]
+    Clockwise,
+    CounterClockwise,
+    Up,
+    Down,
+    Spread,
+    Gather,
+}
+
+impl RgbDirection {
+    /// Map to TL Fan / Galahad2 direction byte.
+    pub fn to_tl_byte(self) -> u8 {
+        match self {
+            Self::Clockwise => 0,
+            Self::CounterClockwise => 1,
+            Self::Up => 2,
+            Self::Down => 3,
+            Self::Spread => 4,
+            Self::Gather => 5,
+        }
+    }
+
+    /// Map to ENE 6K77 direction byte (only Left/Right).
+    pub fn to_ene_byte(self) -> u8 {
+        match self {
+            Self::CounterClockwise => 1, // Left
+            _ => 0,                      // Right (default)
+        }
+    }
+}
+
+/// RGB effect scope (which LEDs are targeted).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum RgbScope {
+    Fan,
+    #[default]
+    All,
+    Top,
+    Bottom,
+    Inner,
+    Outer,
+    Center,
+    Pump,
+    Front,
+    Rear,
+    Segment1,
+    Segment2,
+    Segment3,
+    Segment4,
+    Segment5,
+    Segment6,
+}
+
+/// A complete RGB effect definition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RgbEffect {
+    pub mode: RgbMode,
+    /// Up to 4 RGB colors.
+    #[serde(default = "default_colors")]
+    pub colors: Vec<[u8; 3]>,
+    /// Speed: 0-4 (slowest to fastest).
+    #[serde(default = "default_speed")]
+    pub speed: u8,
+    /// Brightness: 0-4 (dimmest to brightest).
+    #[serde(default = "default_brightness")]
+    pub brightness: u8,
+    /// Animation direction.
+    #[serde(default)]
+    pub direction: RgbDirection,
+    /// Which LED scope to target (All, Top, Bottom, Inner, Outer).
+    #[serde(default)]
+    pub scope: RgbScope,
+    /// Hardware "disabled" flag, turns LEDs off without changing mode/colors.
+    #[serde(default)]
+    pub disabled: bool,
+}
+
+fn default_colors() -> Vec<[u8; 3]> {
+    vec![[0, 0, 0]]
+}
+
+fn default_speed() -> u8 {
+    2
+}
+
+fn default_brightness() -> u8 {
+    4
+}
+
+/// Sentinel brightness value indicating the LEDs should be fully off. Distinct
+/// from `0` (Lowest) because the firmware uses a dedicated off byte
+/// (ENE6K77: `0x08`, Strimer: `0xFF`).
+pub const BRIGHTNESS_OFF: u8 = 255;
+
+pub fn is_brightness_off(brightness: u8) -> bool {
+    brightness == BRIGHTNESS_OFF
+}
+
+/// Clamp a brightness value to the 0-4 firmware scale. The `Off` sentinel
+/// collapses to 0 for devices without a dedicated off byte.
+pub fn brightness_scale(brightness: u8) -> u8 {
+    if is_brightness_off(brightness) {
+        0
+    } else {
+        brightness.min(4)
+    }
+}
+
+impl Default for RgbEffect {
+    fn default() -> Self {
+        Self {
+            mode: RgbMode::Static,
+            colors: vec![[255, 255, 255]],
+            speed: default_speed(),
+            brightness: default_brightness(),
+            direction: RgbDirection::default(),
+            scope: RgbScope::default(),
+            disabled: false,
+        }
+    }
+}
+
+/// Per-zone RGB configuration (stored in config file).
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RgbRegionConfig {
+    pub effect: RgbEffect,
+    #[serde(default)]
+    pub flip: bool,
+}
+
+/// Top-level RGB configuration section.
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RgbEffectParameters {
+    pub mode: RgbMode,
+    pub min_colors: u8,
+    pub max_colors: u8,
+    pub per_fan_colors: bool,
+    pub directions: Vec<RgbDirection>,
+    pub supports_speed: bool,
+}
+
+impl RgbEffectParameters {
+    pub fn validate_values(
+        &self,
+        speed: u32,
+        brightness: u32,
+        colors: usize,
+        fans: usize,
+    ) -> Result<(), &'static str> {
+        if speed > 4 || brightness > 4 {
+            return Err("RGB speed or brightness out of range");
+        }
+        let valid_colors = if self.per_fan_colors {
+            colors == fans
+        } else {
+            (self.min_colors as usize..=self.max_colors as usize).contains(&colors)
+        };
+        if !valid_colors {
+            return Err("Invalid RGB color count");
+        }
+        Ok(())
+    }
+}
+
+
+/// 动画播放时序，单位是 0.625 ms 的设备时钟 tick（移植自 lian-li-linux `rgb/profile.rs`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RgbPlaybackTiming {
+    /// 主间隔，单位为百分之一 tick。
+    pub interval_hundredths: u32,
+    pub secondary_interval_ticks: u16,
+    pub secondary_frame_count: u16,
+    pub outer_longest: bool,
+}
+
+pub const MAX_RGB_ANIMATION_FRAMES: usize = 4096;

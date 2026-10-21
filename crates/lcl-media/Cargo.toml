@@ -1,0 +1,12 @@
+[package]
+name = "lcl-media"
+description = "冷头屏幕的画面：图片/GIF 转 480×480 JPEG、传感器仪表盘渲染"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ab_glyph = "0.2"
+anyhow.workspace = true
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
+memmap2 = "0.9"

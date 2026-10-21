@@ -1,0 +1,19 @@
+[package]
+name = "lcl-app"
+description = "LConnect Lite 图形界面；只通过命名管道和 lcl-daemon 通信，不直接碰设备"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "lcl_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+lcl-core = { workspace = true, features = ["nvml"] }
+serde.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"

@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["crates/lcl-devices", "crates/lcl-core", "crates/lcl-effects", "crates/lcl-media", "crates/lcl-daemon", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+lcl-devices = { path = "crates/lcl-devices" }
+lcl-core = { path = "crates/lcl-core" }
+lcl-effects = { path = "crates/lcl-effects" }
+anyhow = "1.0"
+cbc = "0.1"
+clap = { version = "4.5", features = ["derive"] }
+ctrlc = "3.4"
+des = "0.8"
+interprocess = "2"
+rusb = { version = "0.9", features = ["vendored"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

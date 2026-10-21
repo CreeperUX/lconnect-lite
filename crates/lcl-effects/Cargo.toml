@@ -1,0 +1,10 @@
+[package]
+name = "lcl-effects"
+description = "灯效渲染（TL 风扇、隐流二代冷头灯圈），移植自 lian-li-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
